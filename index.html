@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neural Hand Interface // v14.0 (LinkedIn Demo Ready)</title>
+    <title>Neural Hand Interface // v16.0 (Clean Core)</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
@@ -49,9 +49,9 @@
         }
         
         .hud-status {
-            font-size: 14px; letter-spacing: 1px; margin-bottom: 5px;
+            font-size: 13px; letter-spacing: 1px; margin-bottom: 5px;
             text-shadow: 0 0 5px rgba(0, 255, 204, 0.5);
-            font-weight: bold; white-space: pre-line; line-height: 1.5;
+            font-weight: bold; white-space: pre-line; line-height: 1.4;
         }
 
         .hud-mode { font-size: 32px; font-weight: 900; text-transform: uppercase; transition: color 0.3s ease; }
@@ -59,28 +59,29 @@
         .hud-instructions {
             position: absolute; bottom: 40px; left: 50%;
             transform: translateX(-50%); text-align: center;
-            opacity: 0.9; font-size: 14px; letter-spacing: 2px;
-            background: rgba(0,0,0,0.7); padding: 10px 20px;
+            opacity: 0.9; font-size: 16px; letter-spacing: 2px;
+            background: rgba(0,0,0,0.8); padding: 12px 25px;
             border-radius: 4px; border: 1px solid rgba(255,255,255,0.2);
-            text-transform: uppercase; color: #fff;
+            text-transform: uppercase; color: #fff; font-weight: bold;
+            transition: all 0.3s ease;
         }
 
-        /* Loading Bar for Magic Toggle */
         #magic-loader {
             width: 0%; height: 4px; background: var(--color-magic);
             position: absolute; bottom: 0; left: 0; transition: width 0.1s linear;
         }
 
-        /* Dynamic UI Colors */
         body.mode-passive .hud-top-left { border-color: var(--color-passive); }
         body.mode-active .hud-top-left { border-color: var(--color-active); }
         body.mode-active .hud-mode { color: var(--color-active); text-shadow: 0 0 10px var(--color-active); }
         
         body.mode-magic .hud-top-left { border-color: var(--color-magic); }
         body.mode-magic .hud-mode { color: var(--color-magic); text-shadow: 0 0 20px var(--color-magic); }
+        body.mode-magic .hud-instructions { border-color: var(--color-magic); color: var(--color-magic); }
         
         body.mode-love .hud-top-left { border-color: var(--color-love); }
         body.mode-love .hud-mode { color: var(--color-love); text-shadow: 0 0 20px var(--color-love); }
+        body.mode-love .hud-instructions { border-color: var(--color-love); color: var(--color-love); }
 
     </style>
 </head>
@@ -91,13 +92,13 @@
     
     <div id="hud-layer">
         <div class="hud-top-left">
-            <div class="hud-status" id="status-text">SYSTEM: LOCKED</div>
+            <div class="hud-status" id="status-text">SYSTEM: INITIALIZING...</div>
             <div class="hud-mode" id="mode-text">PASSIVE</div>
             <div id="magic-loader"></div>
         </div>
         
         <div class="hud-instructions" id="instruction-text">
-            // UNLOCK REQUIRED: RAISE BOTH HANDS (OPEN PALMS)
+            SYSTEM LOCKED // RAISE BOTH HANDS TO START
         </div>
     </div>
 
@@ -114,14 +115,11 @@
             hands: [] 
         };
 
-        // Timers
         let unlockTimer = 0;
         let spellToggleTimer = 0;
-        let spellHolding = false;
         let loveHoldTimer = 0; 
         let rotationFrame = 0;
 
-        // Particle Arrays
         let rainParticles = []; 
         let orbitalParticles = []; 
         let heartParticles = []; 
@@ -134,11 +132,6 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
-        /**
-         * ------------------------------------------------------------------
-         * PARTICLE CLASSES
-         * ------------------------------------------------------------------
-         */
         class HeartParticle {
             constructor(x, y) {
                 this.x = x; this.y = y; this.size = Math.random() * 15 + 5;
@@ -202,11 +195,6 @@
             }
         }
 
-        /**
-         * ------------------------------------------------------------------
-         * AGAMOTTO VISUALS
-         * ------------------------------------------------------------------
-         */
         function drawMandala(ctx, x, y, radius, time) {
             ctx.save(); ctx.translate(x, y);
             const orange = "#ea7023"; const red = "#ae2d17";
@@ -231,48 +219,40 @@
             ctx.restore(); ctx.restore();
         }
 
-        /**
-         * ------------------------------------------------------------------
-         * HAND ANALYSIS
-         * ------------------------------------------------------------------
-         */
-        function dist3D(p1, p2) {
+        function dist(p1, p2) {
             return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2) + Math.pow(p1.z - p2.z, 2));
         }
 
-        function isFingerExtended(landmarks, fingerName) {
-            const wrist = landmarks[0];
-            let tipIdx, pipIdx;
-            if (fingerName === 'THUMB') {
-                const tip = landmarks[4]; const ip = landmarks[3]; const pinkyBase = landmarks[17];
-                return dist3D(tip, pinkyBase) > dist3D(ip, pinkyBase) * 1.1; 
-            }
-            switch(fingerName) {
-                case 'INDEX': tipIdx=8; pipIdx=6; break;
-                case 'MIDDLE': tipIdx=12; pipIdx=10; break;
-                case 'RING': tipIdx=16; pipIdx=14; break;
-                case 'PINKY': tipIdx=20; pipIdx=18; break;
-            }
-            return dist3D(wrist, landmarks[tipIdx]) > dist3D(wrist, landmarks[pipIdx]);
-        }
-
         function analyzeHand(landmarks, handedness) {
-            const fingers = [
-                isFingerExtended(landmarks, 'THUMB'), isFingerExtended(landmarks, 'INDEX'),
-                isFingerExtended(landmarks, 'MIDDLE'), isFingerExtended(landmarks, 'RING'),
-                isFingerExtended(landmarks, 'PINKY')
-            ];
-            const count = fingers.filter(Boolean).length;
+            const wrist = landmarks[0];
+            const fingers = [];
             
-            const indexBase = landmarks[5]; const pinkyBase = landmarks[17];
+            const thumbTip = landmarks[4];
+            const thumbIp = landmarks[3];
+            const pinkyBase = landmarks[17];
+            const thumbDist = dist(thumbTip, pinkyBase);
+            const ipDist = dist(thumbIp, pinkyBase);
+            fingers.push(thumbDist > ipDist * 1.1); 
+
+            const fingerIndices = [[8,6], [12,10], [16,14], [20,18]];
+            for(let i=0; i<4; i++) {
+                const tip = landmarks[fingerIndices[i][0]];
+                const pip = landmarks[fingerIndices[i][1]];
+                const dTip = dist(tip, wrist);
+                const dPip = dist(pip, wrist);
+                fingers.push(dTip > dPip);
+            }
+
+            const count = fingers.filter(Boolean).length;
+            const indexBase = landmarks[5];
             const isPalm = (handedness === 'Right') ? (indexBase.x < pinkyBase.x) : (indexBase.x > pinkyBase.x);
 
             let name = "UNKNOWN";
             if (count === 5) name = "OPEN"; 
             else if (count === 0) name = "FIST";
             else if (count === 1) {
-                if (fingers[0]) name = "THUMBS UP"; // Thumb only
-                if (fingers[1]) name = "POINTING";  // Index only
+                if (fingers[0]) name = "THUMBS UP"; 
+                if (fingers[1]) name = "POINTING";  
             }
             else if (count === 2) {
                 if (fingers[1] && fingers[2]) name = "PEACE";
@@ -286,11 +266,6 @@
             return { handedness, orientation: isPalm ? "PALM" : "BACK", name, fingers, landmarks };
         }
 
-        /**
-         * ------------------------------------------------------------------
-         * MAIN LOOP
-         * ------------------------------------------------------------------
-         */
         function processResults(results) {
             const w = CANVAS_ELEMENT.width;
             const h = CANVAS_ELEMENT.height;
@@ -299,7 +274,6 @@
             CANVAS_CTX.save();
             CANVAS_CTX.clearRect(0, 0, w, h);
 
-            // 1. VIDEO
             CANVAS_CTX.filter = 'brightness(50%)';
             if (STATE.spellActive || STATE.loveActive || STATE.victoryActive) CANVAS_CTX.filter = 'brightness(30%)';
 
@@ -326,15 +300,14 @@
                 }
             }
 
-            // 2. LOGIC
             STATE.loveActive = false;
             STATE.victoryActive = false;
             let potentialLove = false;
             let potentialMagic = false;
+            let instrText = "SYSTEM ACTIVE. WAITING FOR GESTURES...";
 
             if (STATE.mode === 'ACTIVE') {
                 
-                // A. LOVE (Heart)
                 if (STATE.hands.length === 2) {
                     const h1 = STATE.hands[0].landmarks; const h2 = STATE.hands[1].landmarks;
                     const i1x = (1-h1[8].x)*w, i1y = h1[8].y*h;
@@ -346,8 +319,10 @@
 
                     if (distI < 120 && distT < 120) {
                         potentialLove = true;
+                        instrText = "HOLD HEART GESTURE TO ACTIVATE ❤...";
                         if (Date.now() - loveHoldTimer > 1000) {
                             STATE.loveActive = true;
+                            instrText = "LOVE DETECTED: SPREADING JOY ❤";
                             const cx = (i1x + i2x) / 2; const cy = (i1y + i2y) / 2;
                             for(let k=0; k<3; k++) heartParticles.push(new HeartParticle(cx, cy));
                         }
@@ -355,44 +330,34 @@
                 }
                 if (!potentialLove) loveHoldTimer = Date.now();
 
-                // B. SINGLE HAND GESTURES
                 STATE.hands.forEach(handData => {
                     if (handData.name === "PEACE") {
                         STATE.victoryActive = true;
+                        instrText = "VICTORY DETECTED: CELEBRATION MODE ✌";
                         const lm = handData.landmarks;
                         [lm[8], lm[12]].forEach(tip => {
                             if(Math.random()>0.5) starParticles.push(new StarParticle((1-tip.x)*w, tip.y*h));
                         });
                     }
+                    if (handData.name === "THUMBS UP") instrText = "STATUS: LIKED 👍";
+                    if (handData.name === "CALL ME") instrText = "STATUS: CALLING LINE... 🤙";
+                    if (handData.name === "SPIDERMAN") instrText = "STATUS: WEB SHOOTERS READY 🕸";
+                    if (handData.name === "ROCK ON") instrText = "STATUS: ROCKING OUT 🤘";
                 });
 
-                // C. AGAMOTTO MAGIC TOGGLE (1 Sec Hold)
                 if (STATE.hands.length === 2) {
                     const hasOpen = STATE.hands.some(h => h.name === 'OPEN');
                     const hasFist = STATE.hands.some(h => h.name === 'FIST');
                     if (hasOpen && hasFist) {
                         potentialMagic = true;
-                        spellHolding = true;
-                        // Animate loading bar
+                        instrText = "HOLD GESTURE TO TOGGLE MAGIC... ✊";
                         const elapsed = Date.now() - spellToggleTimer;
                         const pct = Math.min(elapsed / 1000, 1) * 100;
                         document.getElementById('magic-loader').style.width = pct + "%";
 
                         if (elapsed > 1000) {
-                             // Only toggle once per hold
-                             if (spellHolding && document.getElementById('magic-loader').style.width === "100%") {
-                                 // Toggle logic handled by resetting timer or flag
-                             }
-                             // Actually we need a state lock to prevent rapid toggling
-                             // Simple hack: if pct is 100, we toggle and then wait for release
-                             // But let's keep it simple: continuously check? No.
-                             // Better: Trigger at exactly 100% then lock.
-                        }
-                        
-                        // Let's stick to the previous simple timer but visualize it
-                        if (Date.now() - spellToggleTimer > 1000) {
                              STATE.spellActive = !STATE.spellActive;
-                             spellToggleTimer = Date.now() + 1000; // Add delay so it doesn't flicker
+                             spellToggleTimer = Date.now() + 1000;
                              document.getElementById('magic-loader').style.width = "0%";
                         }
                     } 
@@ -400,19 +365,24 @@
                 
                 if (!potentialMagic) {
                     spellToggleTimer = Date.now();
-                    spellHolding = false;
                     document.getElementById('magic-loader').style.width = "0%";
                 }
+
+                if (STATE.spellActive && !potentialMagic) instrText = "MAGIC ACTIVE: FORM FISTS TO CAST SPELLS ✨";
+
             } 
-            else { // PASSIVE MODE
+            else { 
+                instrText = "SYSTEM LOCKED // RAISE BOTH HANDS (OPEN) TO START";
                 if (STATE.hands.length === 2 && STATE.hands.every(h => h.name === 'OPEN')) {
+                    instrText = "UNLOCKING SYSTEM...";
                     if (Date.now() - unlockTimer > 1500) {
                         STATE.mode = 'ACTIVE';
                     }
                 } else unlockTimer = Date.now();
             }
 
-            // 3. UI UPDATES
+            document.getElementById('instruction-text').innerText = instrText;
+
             document.body.className = '';
             if (STATE.mode === 'PASSIVE') document.body.classList.add('mode-passive');
             else {
@@ -421,7 +391,6 @@
                 else if (STATE.spellActive) document.body.classList.add('mode-magic');
             }
 
-            // 4. DRAW EFFECTS
             if (STATE.mode === 'ACTIVE') {
                 let fistCenters = [];
                 STATE.hands.forEach(handData => {
@@ -438,7 +407,6 @@
                     }
                 });
 
-                // Updates
                 for(let i=heartParticles.length-1; i>=0; i--) { heartParticles[i].update(); heartParticles[i].draw(CANVAS_CTX); if(heartParticles[i].life<=0) heartParticles.splice(i,1); }
                 for(let i=starParticles.length-1; i>=0; i--) { starParticles[i].update(); starParticles[i].draw(CANVAS_CTX); if(starParticles[i].life<=0) starParticles.splice(i,1); }
                 for(let i=rainParticles.length-1; i>=0; i--) { rainParticles[i].update(); rainParticles[i].draw(CANVAS_CTX); if(rainParticles[i].life<=0) rainParticles.splice(i,1); }
@@ -453,7 +421,6 @@
                 } else orbitalParticles = [];
             }
 
-            // 5. DRAW SKELETONS & HUD
             STATE.hands.forEach(handData => drawTechHand(handData, w, h));
             updateHUD();
             CANVAS_CTX.restore();
@@ -509,11 +476,15 @@
 
             let status = "NO SIGNAL";
             if(STATE.hands.length > 0) {
-                // Detailed diagnostic string
                 status = STATE.hands.map(h => {
-                    let f = h.fingers.map(bool => bool ? "1" : "0").join("");
-                    return `H:${h.handedness.substring(0,1)} | G:${h.name.padEnd(9)} | F:[${f}]`;
-                }).join('\n');
+                    const f = h.fingers;
+                    return `[${h.handedness.toUpperCase()}] G:${h.name}\n` + 
+                           `THUMB : ${f[0] ? 'OPEN' : 'CLOSED'}\n` +
+                           `INDEX : ${f[1] ? 'OPEN' : 'CLOSED'}\n` +
+                           `MIDDLE: ${f[2] ? 'OPEN' : 'CLOSED'}\n` +
+                           `RING  : ${f[3] ? 'OPEN' : 'CLOSED'}\n` +
+                           `PINKY : ${f[4] ? 'OPEN' : 'CLOSED'}`;
+                }).join('\n\n');
             }
             document.getElementById('status-text').innerText = status;
         }
